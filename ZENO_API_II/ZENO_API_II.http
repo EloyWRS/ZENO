@@ -1,0 +1,6 @@
+@ZENO_API_II_HostAddress = http://localhost:5075
+
+GET {{ZENO_API_II_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
