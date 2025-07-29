@@ -12,6 +12,8 @@ namespace ZENO_API_II.Data
         public DbSet<ChatThread> Threads { get; set; }
         public DbSet<Message> Messages { get; set; }
         public DbSet<CreditTransaction> CreditTransactions { get; set; }
+        public DbSet<OpenAIRunLog> OpenAIRunLogs { get; set; }
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -41,7 +43,15 @@ namespace ZENO_API_II.Data
                 .WithOne(m => m.Thread)
                 .HasForeignKey(m => m.ThreadId);
 
-            
+            // OpenAIRunLogs
+            modelBuilder.Entity<OpenAIRunLog>()
+            .Property(l => l.RunId)
+            .IsRequired();
+
+            modelBuilder.Entity<OpenAIRunLog>()
+                .Property(l => l.Status)
+                .HasMaxLength(50);
+
 
         }
     }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.OpenApi.Models;
 using ZENO_API_II.Data;
+using ZENO_API_II.Services;
 using ZENO_API_II.Services.Implementations;
 using ZENO_API_II.Services.Interfaces;
 
@@ -20,6 +21,10 @@ builder.Services.AddSwaggerGen();           // <- isto gera a doc do Swagger
 
 builder.Services.AddScoped<ICreditService, CreditService>();
 builder.Services.AddScoped<ITokenEstimatorService, TokenEstimatorService>();
+builder.Services.AddScoped<IOpenAITextToSpeechService, OpenAITextToSpeechService>();
+builder.Services.AddScoped<IAssistantMessageService, AssistantMessageService>();
+builder.Services.AddScoped<IAudioTranscriptionService, AudioTranscriptionService>();
+
 
 
 var app = builder.Build();
