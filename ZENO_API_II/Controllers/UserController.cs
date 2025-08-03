@@ -1,9 +1,9 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using ZeNO_API_II.DTOs.User;
 using ZENO_API_II.Data;
 using ZENO_API_II.DTOs.User;
 using ZENO_API_II.Models;
+using ZENO_API_II.Services.Interfaces;
 
 namespace ZENO_API_II.Controllers
 {
@@ -12,63 +12,88 @@ namespace ZENO_API_II.Controllers
     public class UserController : ControllerBase
     {
         private readonly ZenoDbContext _db;
+        private readonly IJwtService _jwtService;
 
-        public UserController(ZenoDbContext db)
+        public UserController(ZenoDbContext db, IJwtService jwtService)
         {
             _db = db;
+            _jwtService = jwtService;
         }
 
-        // GET /api/users
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<ReadUserDto>>> GetAllUsers()
+        [HttpGet("me")]
+        public async Task<ActionResult<ReadUserDto>> GetCurrentUser()
         {
-            var users = await _db.Users.ToListAsync();
-
-            var userDtos = users.Select(u => new ReadUserDto
+            try
             {
-                Id = u.Id,
-                Name = u.Name,
-                Email = u.Email,
-                Language = u.Language,
-                CreatedAt = u.CreatedAt
-            });
+                // Extract token from Authorization header
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+                {
+                    return Unauthorized(new { message = "No valid authorization header" });
+                }
 
-            return Ok(userDtos);
+                var token = authHeader.Substring("Bearer ".Length);
+                var user = await _jwtService.GetUserFromTokenAsync(token);
+
+                if (user == null)
+                {
+                    return Unauthorized(new { message = "Invalid token" });
+                }
+
+                var userDto = new ReadUserDto
+                {
+                    Id = user.Id,
+                    Name = user.Name,
+                    Email = user.Email,
+                    Language = user.Language,
+                    Credits = user.Credits,
+                    CreatedAt = user.CreatedAt
+                };
+
+                return Ok(userDto);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Internal server error" });
+            }
         }
 
-        // GET /api/users/{id}
         [HttpGet("{id}")]
         public async Task<ActionResult<ReadUserDto>> GetUserById(Guid id)
         {
             var user = await _db.Users.FindAsync(id);
-            if (user == null) return NotFound();
 
-            var dto = new ReadUserDto
+            if (user == null)
+                return NotFound("User not found");
+
+            var result = new ReadUserDto
             {
                 Id = user.Id,
                 Name = user.Name,
                 Email = user.Email,
                 Language = user.Language,
+                Credits = user.Credits,
                 CreatedAt = user.CreatedAt
             };
 
-            return Ok(dto);
+            return Ok(result);
         }
 
-        // POST /api/users
-        [HttpPost]
-        public async Task<ActionResult<ReadUserDto>> CreateUser([FromBody] CreateUserDto dto)
+        [HttpPut("{id}")]
+        public async Task<ActionResult<ReadUserDto>> UpdateUser(Guid id, [FromBody] UpdateUserDto updateDto)
         {
-            var user = new UserLocal
-            {
-                Id = Guid.NewGuid(),
-                Name = dto.Name,
-                Email = dto.Email,
-                Language = dto.Language,
-                CreatedAt = DateTime.UtcNow
-            };
+            var user = await _db.Users.FindAsync(id);
 
-            _db.Users.Add(user);
+            if (user == null)
+                return NotFound("User not found");
+
+            // Update allowed fields
+            if (!string.IsNullOrEmpty(updateDto.Name))
+                user.Name = updateDto.Name;
+
+            if (!string.IsNullOrEmpty(updateDto.Language))
+                user.Language = updateDto.Language;
+
             await _db.SaveChangesAsync();
 
             var result = new ReadUserDto
@@ -77,40 +102,29 @@ namespace ZENO_API_II.Controllers
                 Name = user.Name,
                 Email = user.Email,
                 Language = user.Language,
+                Credits = user.Credits,
                 CreatedAt = user.CreatedAt
             };
 
-            return CreatedAtAction(nameof(GetUserById), new { id = user.Id }, result);
+            return Ok(result);
         }
 
-        // PATCH /api/users/{id}
-        [HttpPatch("{id}")]
-        public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserDto dto)
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<ReadUserDto>>> GetAllUsers()
         {
-            var user = await _db.Users.FindAsync(id);
-            if (user == null) return NotFound();
+            var users = await _db.Users
+                .Select(u => new ReadUserDto
+                {
+                    Id = u.Id,
+                    Name = u.Name,
+                    Email = u.Email,
+                    Language = u.Language,
+                    Credits = u.Credits,
+                    CreatedAt = u.CreatedAt
+                })
+                .ToListAsync();
 
-            user.Name = dto.Name ?? user.Name;
-            user.Email = dto.Email ?? user.Email;
-            user.Language = dto.Language ?? user.Language;
-
-            await _db.SaveChangesAsync();
-
-            return NoContent();
-        }
-
-        // DELETE /api/users/{id}
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteUser(Guid id)
-        {
-            var user = await _db.Users.FindAsync(id);
-            if (user == null) return NotFound();
-
-            _db.Users.Remove(user);
-            await _db.SaveChangesAsync();
-
-            return NoContent();
+            return Ok(users);
         }
     }
-
 }

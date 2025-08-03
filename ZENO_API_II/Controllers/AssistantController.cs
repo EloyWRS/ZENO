@@ -8,6 +8,7 @@ using System.Text;
 using ZENO_API_II.Data;
 using ZENO_API_II.DTOs.Assistant;
 using ZENO_API_II.Models;
+using ZENO_API_II.Services.Interfaces;
 
 namespace ZENO_API_II.Controllers;
 
@@ -17,17 +18,47 @@ public class AssistantController : ControllerBase
 {
     private readonly ZenoDbContext _db;
     private readonly IConfiguration _config;
+    private readonly IJwtService _jwtService;
+    private readonly IUserSetupService _userSetupService;
 
-    public AssistantController(ZenoDbContext db, IConfiguration config)
+    public AssistantController(ZenoDbContext db, IConfiguration config, IJwtService jwtService, IUserSetupService userSetupService)
     {
         _db = db;
         _config = config;
+        _jwtService = jwtService;
+        _userSetupService = userSetupService;
+    }
+
+    private async Task<UserLocal?> GetAuthenticatedUser()
+    {
+        try
+        {
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+            {
+                return null;
+            }
+
+            var token = authHeader.Substring("Bearer ".Length);
+            return await _jwtService.GetUserFromTokenAsync(token);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // GET /api/users/{userId}/assistant
     [HttpGet]
     public async Task<ActionResult<AssistantReadDto>> GetAssistant(Guid userId)
     {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
         var assistant = await _db.Assistants
             .FirstOrDefaultAsync(a => a.UserLocalId == userId);
 
@@ -40,6 +71,7 @@ public class AssistantController : ControllerBase
         var apiKey = _config["OpenAI:ApiKey"];
         var httpClient = new HttpClient();
         httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        httpClient.DefaultRequestHeaders.Add("OpenAI-Beta", "assistants=v2");
 
         var response = await httpClient.GetAsync($"https://api.openai.com/v1/assistants/{assistant.OpenAI_Id}");
         var json = await response.Content.ReadAsStringAsync();
@@ -65,6 +97,13 @@ public class AssistantController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<AssistantReadDto>> CreateAssistant(Guid userId, [FromBody] AssistantCreateDto dto)
     {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
         var user = await _db.Users
             .Include(u => u.Assistant)
             .FirstOrDefaultAsync(u => u.Id == userId);
@@ -131,6 +170,13 @@ public class AssistantController : ControllerBase
     [HttpPatch]
     public async Task<IActionResult> UpdateAssistant(Guid userId, [FromBody] AssistantUpdateDto dto)
     {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
         var assistant = await _db.Assistants
             .FirstOrDefaultAsync(a => a.UserLocalId == userId);
 
@@ -164,6 +210,61 @@ public class AssistantController : ControllerBase
         await _db.SaveChangesAsync();
 
         return NoContent();
+    }
+
+    // GET /api/users/{userId}/assistant/thread
+    [HttpGet("thread")]
+    public async Task<ActionResult<object>> GetOrCreateAssistantAndThread(Guid userId)
+    {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
+        // Get user
+        var user = await _db.Users.FindAsync(userId);
+        if (user == null)
+            return NotFound("User not found");
+
+        // Use UserSetupService to ensure assistant and thread exist
+        await _userSetupService.SetupNewUserAsync(user);
+
+        // Get the assistant and latest thread
+        var assistant = await _db.Assistants
+            .Include(a => a.Threads)
+            .FirstOrDefaultAsync(a => a.UserLocalId == userId);
+
+        if (assistant == null)
+            return NotFound("Assistant not found");
+
+        var latestThread = assistant.Threads
+            .OrderByDescending(t => t.CreatedAt)
+            .FirstOrDefault();
+
+        if (latestThread == null)
+            return NotFound("Thread not found");
+
+        return Ok(new
+        {
+            assistant = new
+            {
+                id = assistant.Id,
+                name = assistant.Name,
+                description = assistant.Description,
+                createdAt = assistant.CreatedAt,
+                userId = assistant.UserLocalId
+            },
+            thread = new
+            {
+                id = latestThread.Id,
+                title = latestThread.Title,
+                createdAt = latestThread.CreatedAt,
+                assistantId = latestThread.AssistantId,
+                openaiThreadId = latestThread.OpenAI_ThreadId
+            }
+        });
     }
 
 }

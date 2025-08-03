@@ -10,6 +10,8 @@
 
         public string Language { get; set; }
 
+        public int Credits { get; set; }
+
         public DateTime CreatedAt { get; set; }
     }
 }

@@ -23,6 +23,7 @@ public class AudioTranscriptionService : IAudioTranscriptionService
         using var stream = audioFile.OpenReadStream();
         form.Add(new StreamContent(stream), "file", audioFile.FileName);
         form.Add(new StringContent("whisper-1"), "model");
+        form.Add(new StringContent("pt"), "language");
 
         var response = await httpClient.PostAsync("https://api.openai.com/v1/audio/transcriptions", form);
         var responseBody = await response.Content.ReadAsStringAsync();

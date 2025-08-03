@@ -22,8 +22,8 @@ namespace ZENO_API_II.Controllers
             _config = config;
         }
 
-        // GET /api/assistants/{assistantId}/conversations
-        [HttpGet("api/assistants/{assistantId}/conversations")]
+        // GET /api/assistants/{assistantId}/threads
+        [HttpGet("api/assistants/{assistantId}/threads")]
         public async Task<ActionResult<IEnumerable<ChatThreadReadDto>>> GetThreads(Guid assistantId)
         {
             var threads = await _db.Threads
@@ -40,8 +40,8 @@ namespace ZENO_API_II.Controllers
             return Ok(threads);
         }
 
-        // GET /api/conversations/{id}
-        [HttpGet("api/conversations/{id}")]
+        // GET /api/threads/{id}
+        [HttpGet("api/threads/{id}")]
         public async Task<ActionResult<ChatThreadReadDto>> GetThreadById(Guid id)
         {
             var thread = await _db.Threads.FindAsync(id);
@@ -82,7 +82,7 @@ namespace ZENO_API_II.Controllers
             var thread = new ChatThread
             {
                 Id = Guid.NewGuid(),
-                Title = dto.Title ?? "Nova Conversa",
+                Title = dto.Title ?? "Nova Thread",
                 CreatedAt = DateTime.UtcNow,
                 AssistantId = assistant.Id,
                 OpenAI_ThreadId = openaiThreadId
@@ -103,10 +103,8 @@ namespace ZENO_API_II.Controllers
             return CreatedAtAction(nameof(GetThreadById), new { id = thread.Id }, output);
         }
 
-
-
-        // DELETE /api/conversations/{id}
-        [HttpDelete("api/conversations/{id}")]
+        // DELETE /api/threads/{id}
+        [HttpDelete("api/threads/{id}")]
         public async Task<IActionResult> DeleteThread(Guid id)
         {
             var thread = await _db.Threads.FindAsync(id);

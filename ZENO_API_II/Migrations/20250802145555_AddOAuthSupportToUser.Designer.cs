@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ZENO_API_II.Data;
@@ -11,9 +12,11 @@ using ZENO_API_II.Data;
 namespace ZENO_API_II.Migrations
 {
     [DbContext(typeof(ZenoDbContext))]
-    partial class ZenoDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250802145555_AddOAuthSupportToUser")]
+    partial class AddOAuthSupportToUser
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -73,14 +76,9 @@ namespace ZENO_API_II.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
 
                     b.HasIndex("AssistantId");
-
-                    b.HasIndex("UserId");
 
                     b.ToTable("Threads");
                 });
@@ -205,31 +203,10 @@ namespace ZENO_API_II.Migrations
                     b.Property<DateTime>("LastCreditUpdate")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("LastLoginAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
-
-                    b.Property<string>("OAuthProvider")
-                        .HasColumnType("text");
-
-                    b.Property<string>("OAuthRefreshToken")
-                        .HasColumnType("text");
-
-                    b.Property<string>("OAuthSubjectId")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("OAuthTokenExpiresAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PasswordHash")
-                        .HasColumnType("text");
-
-                    b.Property<string>("PasswordSalt")
-                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -255,15 +232,7 @@ namespace ZENO_API_II.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("ZENO_API_II.Models.UserLocal", "User")
-                        .WithMany("ChatThreads")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("Assistant");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("ZENO_API_II.Models.CreditTransaction", b =>
@@ -302,8 +271,6 @@ namespace ZENO_API_II.Migrations
                 {
                     b.Navigation("Assistant")
                         .IsRequired();
-
-                    b.Navigation("ChatThreads");
 
                     b.Navigation("CreditTransactions");
                 });

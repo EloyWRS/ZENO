@@ -7,7 +7,13 @@ using ZENO_API_II.Data;
 using ZENO_API_II.DTOs.Audio;
 using ZENO_API_II.DTOs.Message;
 using ZENO_API_II.Models;
+using ZENO_API_II.Services.Implementations;
 using ZENO_API_II.Services.Interfaces;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using ZENO_API_II.Exceptions;
+using ZENO_API_II.Constants;
 
 namespace ZENO_API_II.Controllers;
 
@@ -18,17 +24,74 @@ namespace ZENO_API_II.Controllers;
         private readonly IConfiguration _config;
         private readonly IOpenAITextToSpeechService _tts;
         private readonly IAssistantMessageService _assistantMessageService;
-    public MessagesController(ZenoDbContext db, IConfiguration configuration, IOpenAITextToSpeechService tts, IAssistantMessageService assistantMessageService)
+        private readonly IAudioTranscriptionService _audioTranscriptionService;
+        private readonly IJwtService _jwtService;
+
+    public MessagesController(
+        ZenoDbContext db, 
+        IConfiguration configuration, 
+        IOpenAITextToSpeechService tts, 
+        IAssistantMessageService assistantMessageService, 
+        IAudioTranscriptionService audioTranscriptionService,
+        IJwtService jwtService)
     {
         _db = db;
         _config = configuration;
         _tts = tts;
         _assistantMessageService = assistantMessageService;
+        _audioTranscriptionService = audioTranscriptionService;
+        _jwtService = jwtService;
+    }
+
+    // Helper method to get authenticated user from JWT token
+    private async Task<UserLocal?> GetAuthenticatedUser()
+    {
+        try
+        {
+            var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+                return null;
+
+            var token = authHeader.Substring("Bearer ".Length);
+            return await _jwtService.GetUserFromTokenAsync(token);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Helper method to check if user can access a thread
+    private async Task<bool> CanAccessThread(Guid threadId, UserLocal user)
+    {
+        try
+        {
+            var thread = await _db.Threads
+                .Include(t => t.Assistant)
+                .FirstOrDefaultAsync(t => t.Id == threadId);
+
+            if (thread == null)
+                return false;
+
+            // Check if the thread belongs to the user's assistant
+            return thread.Assistant?.UserLocalId == user.Id;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     [HttpGet("api/threads/{threadId}/messages")]
         public async Task<ActionResult<IEnumerable<MessageReadDto>>> GetMessagesByThread(Guid threadId)
         {
+            var authenticatedUser = await GetAuthenticatedUser();
+            if (authenticatedUser == null)
+                return Unauthorized(new { message = "Invalid token" });
+
+            if (!await CanAccessThread(threadId, authenticatedUser))
+                return Forbid();
+
             var thread = await _db.Threads.FindAsync(threadId);
 
             if (thread == null)
@@ -55,10 +118,21 @@ namespace ZENO_API_II.Controllers;
     [HttpGet("api/messages/{id}")]
         public async Task<ActionResult<MessageReadDto>> GetMessageById(Guid id)
         {
-            var message = await _db.Messages.FindAsync(id);
+            var authenticatedUser = await GetAuthenticatedUser();
+            if (authenticatedUser == null)
+                return Unauthorized(new { message = "Invalid token" });
+
+            var message = await _db.Messages
+                .Include(m => m.Thread)
+                .ThenInclude(t => t.Assistant)
+                .FirstOrDefaultAsync(m => m.Id == id);
 
             if (message == null)
                 return NotFound("Mensagem não encontrada.");
+
+            // Check if user can access this message's thread
+            if (message.Thread?.Assistant?.UserLocalId != authenticatedUser.Id)
+                return Forbid();
 
             var result = new MessageReadDto
             {
@@ -78,14 +152,41 @@ namespace ZENO_API_II.Controllers;
     Guid threadId,
     [FromBody] MessageCreateDto dto)
     {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (!await CanAccessThread(threadId, authenticatedUser))
+            return Forbid();
+
         try
         {
             var result = await _assistantMessageService.CreateMessageAsync(threadId, dto);
             return CreatedAtAction(nameof(GetMessageById), new { id = result.Id }, result);
         }
+        catch (BusinessException ex)
+        {
+            return StatusCode(ex.StatusCode, new
+            {
+                error = new
+                {
+                    message = ex.Message,
+                    code = ex.ErrorCode,
+                    statusCode = ex.StatusCode
+                }
+            });
+        }
         catch (Exception ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(new
+            {
+                error = new
+                {
+                    message = "Erro interno do servidor",
+                    code = ErrorCodes.INTERNAL_ERROR,
+                    statusCode = 500
+                }
+            });
         }
     }
 
@@ -94,8 +195,21 @@ namespace ZENO_API_II.Controllers;
     [HttpGet("api/messages/{id}/audio")]
     public async Task<IActionResult> GetMessageAudio(Guid id)
     {
-        var message = await _db.Messages.FindAsync(id);
-        if (message == null) return NotFound();
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        var message = await _db.Messages
+            .Include(m => m.Thread)
+            .ThenInclude(t => t.Assistant)
+            .FirstOrDefaultAsync(m => m.Id == id);
+
+        if (message == null) 
+            return NotFound();
+
+        // Check if user can access this message's thread
+        if (message.Thread?.Assistant?.UserLocalId != authenticatedUser.Id)
+            return Forbid();
 
         try
         {
@@ -107,9 +221,17 @@ namespace ZENO_API_II.Controllers;
             return StatusCode(500, ex.Message);
         }
     }
+
     [HttpPost("api/messages/audio")]
     public async Task<ActionResult<MessageReadDto>> CreateMessageFromAudio([FromForm] AudioUploadDto input)
     {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (!await CanAccessThread(input.ThreadId, authenticatedUser))
+            return Forbid();
+
         if (input.AudioFile == null || input.AudioFile.Length == 0)
             return BadRequest("Ficheiro de áudio não foi fornecido.");
 
@@ -124,24 +246,7 @@ namespace ZENO_API_II.Controllers;
         if (string.IsNullOrEmpty(assistant.OpenAI_Id))
             return BadRequest("Assistente não está ligado à OpenAI.");
 
-        var apiKey = _config["OpenAI:ApiKey"];
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        // Enviar áudio para Whisper API
-        using var form = new MultipartFormDataContent();
-        using var stream = input.AudioFile.OpenReadStream();
-        form.Add(new StreamContent(stream), "file", input.AudioFile.FileName);
-        form.Add(new StringContent("whisper-1"), "model");
-
-        var response = await httpClient.PostAsync("https://api.openai.com/v1/audio/transcriptions", form);
-        var responseBody = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            return StatusCode((int)response.StatusCode, responseBody);
-
-        dynamic result = JsonConvert.DeserializeObject(responseBody);
-        string transcribedText = result.text;
+        string transcribedText = await _audioTranscriptionService.TranscribeAudioAsync(input.AudioFile);
 
         var dto = new MessageCreateDto { Role = "user", Content = transcribedText };
         return await CreateMessage(input.ThreadId, dto);
