@@ -238,6 +238,37 @@ namespace ZENO_API_II.Services.Implementations
             }
         }
 
+        public async Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+            {
+                return false;
+            }
+
+            // Disallow password change for OAuth-only accounts
+            if (user.IsOAuthUser && !user.IsLocalUser)
+            {
+                throw new InvalidOperationException("OAuth-only users cannot change local password");
+            }
+
+            if (string.IsNullOrWhiteSpace(user.PasswordHash) || string.IsNullOrWhiteSpace(user.PasswordSalt))
+            {
+                throw new InvalidOperationException("Password not set for this account");
+            }
+
+            if (!VerifyPassword(currentPassword, user.PasswordHash!, user.PasswordSalt!))
+            {
+                return false; // current password mismatch
+            }
+
+            var (newHash, newSalt) = HashPassword(newPassword);
+            user.PasswordHash = newHash;
+            user.PasswordSalt = newSalt;
+            await _db.SaveChangesAsync();
+            return true;
+        }
+
         private (string hash, string salt) HashPassword(string password)
         {
             using var hmac = new HMACSHA512();

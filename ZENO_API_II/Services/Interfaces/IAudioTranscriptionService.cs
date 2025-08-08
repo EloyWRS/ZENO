@@ -2,5 +2,5 @@
 
 public interface IAudioTranscriptionService
 {
-    Task<string> TranscribeAudioAsync(IFormFile audioFile);
+    Task<string> TranscribeAudioAsync(IFormFile audioFile, string? language = null);
 }

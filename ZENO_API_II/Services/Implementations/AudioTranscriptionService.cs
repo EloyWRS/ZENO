@@ -13,7 +13,7 @@ public class AudioTranscriptionService : IAudioTranscriptionService
         _config = config;
     }
 
-    public async Task<string> TranscribeAudioAsync(IFormFile audioFile)
+    public async Task<string> TranscribeAudioAsync(IFormFile audioFile, string? language = null)
     {
         var apiKey = _config["OpenAI:ApiKey"];
         using var httpClient = new HttpClient();
@@ -23,7 +23,12 @@ public class AudioTranscriptionService : IAudioTranscriptionService
         using var stream = audioFile.OpenReadStream();
         form.Add(new StreamContent(stream), "file", audioFile.FileName);
         form.Add(new StringContent("whisper-1"), "model");
-        form.Add(new StringContent("pt"), "language");
+        // If a language is provided, set it. If omitted, Whisper will auto-detect.
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            var whisperLang = language.Split('-')[0];
+            form.Add(new StringContent(whisperLang), "language");
+        }
 
         var response = await httpClient.PostAsync("https://api.openai.com/v1/audio/transcriptions", form);
         var responseBody = await response.Content.ReadAsStringAsync();

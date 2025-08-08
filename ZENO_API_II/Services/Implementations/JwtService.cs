@@ -42,6 +42,13 @@ namespace ZENO_API_II.Services.Implementations
                 claims.Add(new Claim("oauth_subject_id", user.OAuthSubjectId!));
             }
 
+            // Add credential version fingerprint for local-password accounts
+            if (user.IsLocalUser && !string.IsNullOrWhiteSpace(user.PasswordSalt))
+            {
+                var credVersion = ComputeCredentialVersion(user.PasswordSalt!);
+                claims.Add(new Claim("cred_version", credVersion));
+            }
+
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(claims),
@@ -84,10 +91,32 @@ namespace ZENO_API_II.Services.Implementations
 
                 var jwtToken = (JwtSecurityToken)validatedToken;
                 var userIdClaim = jwtToken.Claims.FirstOrDefault(x => x.Type == "userId")?.Value;
+                var credVersionClaim = jwtToken.Claims.FirstOrDefault(x => x.Type == "cred_version")?.Value;
                 
                 if (Guid.TryParse(userIdClaim, out var id))
                 {
                     userId = id;
+
+                    // If token has a credential version, validate against current user state
+                    if (!string.IsNullOrEmpty(credVersionClaim))
+                    {
+                        var user = _db.Users.Find(id);
+                        if (user == null)
+                        {
+                            return false;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(user.PasswordSalt))
+                        {
+                            // If user no longer has local creds, then any token with cred_version becomes invalid
+                            return false;
+                        }
+
+                        var expected = ComputeCredentialVersion(user.PasswordSalt!);
+                        return string.Equals(credVersionClaim, expected, StringComparison.Ordinal);
+                    }
+
+                    // Tokens without cred_version are considered valid (e.g., OAuth-only tokens)
                     return true;
                 }
 
@@ -97,6 +126,16 @@ namespace ZENO_API_II.Services.Implementations
             {
                 return false;
             }
+        }
+
+        private string ComputeCredentialVersion(string passwordSalt)
+        {
+            // Derive a fingerprint from server secret and current password salt.
+            // This avoids exposing raw salt while staying stable until password changes.
+            var secret = _config["Jwt:SecretKey"] ?? string.Empty;
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+            var bytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(passwordSalt));
+            return Convert.ToHexString(bytes);
         }
 
         public async Task<UserLocal?> GetUserFromTokenAsync(string token)

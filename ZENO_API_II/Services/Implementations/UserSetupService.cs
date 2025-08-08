@@ -43,10 +43,14 @@ namespace ZENO_API_II.Services.Implementations
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             httpClient.DefaultRequestHeaders.Add("OpenAI-Beta", "assistants=v2");
 
+            // Assistant-level instruction: detect input language, but respond in user's base language by default
+            var baseLanguage = user.Language ?? "en-US";
+            var instructions = $"You are a personal assistant named ZENO. Be informal, loyal, and remember context. Detect the user's input language automatically. By default, respond in {baseLanguage} unless the user explicitly requests another language.";
+
             var body = new
             {
                 name = "Zeno",
-                instructions = "És um assistente pessoal chamado ZENO. Sê informal, leal e com memória.",
+                instructions = instructions,
                 model = "gpt-4o",
                 temperature = 0.7
             };

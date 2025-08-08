@@ -20,13 +20,84 @@ public class AssistantController : ControllerBase
     private readonly IConfiguration _config;
     private readonly IJwtService _jwtService;
     private readonly IUserSetupService _userSetupService;
+    private readonly IAssistantService _assistantService;
 
-    public AssistantController(ZenoDbContext db, IConfiguration config, IJwtService jwtService, IUserSetupService userSetupService)
+    public AssistantController(ZenoDbContext db, IConfiguration config, IJwtService jwtService, IUserSetupService userSetupService, IAssistantService assistantService)
     {
         _db = db;
         _config = config;
         _jwtService = jwtService;
         _userSetupService = userSetupService;
+        _assistantService = assistantService;
+    }
+
+    // GET /api/users/{userId}/assistant/instructions
+    [HttpGet("instructions")]
+    public async Task<IActionResult> GetAssistantInstructions(Guid userId)
+    {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
+        try
+        {
+            var instructions = await _assistantService.GetAssistantInstructionsAsync(userId);
+            return Ok(new { instructions });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    // PATCH /api/users/{userId}/assistant/instructions
+    [HttpPatch("instructions")]
+    public async Task<IActionResult> UpdateAssistantInstructions(Guid userId, [FromBody] AssistantInstructionsUpdateDto dto)
+    {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
+        if (dto == null || string.IsNullOrWhiteSpace(dto.Instructions))
+            return BadRequest(new { message = "'instructions' is required" });
+
+        try
+        {
+            await _assistantService.UpdateAssistantInstructionsAsync(userId, dto.Instructions);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
+
+    // DELETE /api/users/{userId}/assistant/instructions
+    [HttpDelete("instructions")]
+    public async Task<IActionResult> DeleteAssistantInstructions(Guid userId)
+    {
+        var authenticatedUser = await GetAuthenticatedUser();
+        if (authenticatedUser == null)
+            return Unauthorized(new { message = "Invalid token" });
+
+        if (authenticatedUser.Id != userId)
+            return Forbid();
+
+        try
+        {
+            await _assistantService.DeleteAssistantInstructionsAsync(userId);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     private async Task<UserLocal?> GetAuthenticatedUser()
@@ -59,38 +130,15 @@ public class AssistantController : ControllerBase
         if (authenticatedUser.Id != userId)
             return Forbid();
 
-        var assistant = await _db.Assistants
-            .FirstOrDefaultAsync(a => a.UserLocalId == userId);
-
-        if (assistant == null)
-            return NotFound();
-
-        if (string.IsNullOrEmpty(assistant.OpenAI_Id))
-            return BadRequest("Assistente não está ligado à OpenAI.");
-
-        var apiKey = _config["OpenAI:ApiKey"];
-        var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        httpClient.DefaultRequestHeaders.Add("OpenAI-Beta", "assistants=v2");
-
-        var response = await httpClient.GetAsync($"https://api.openai.com/v1/assistants/{assistant.OpenAI_Id}");
-        var json = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            return StatusCode((int)response.StatusCode, json);
-
-        dynamic result = JsonConvert.DeserializeObject(json);
-
-        var dto = new AssistantReadDto
+        try
         {
-            Id = assistant.Id,
-            Name = result.name,
-            Description = result.instructions, // ou mapeia como preferires
-            CreatedAt = assistant.CreatedAt,
-            UserId = assistant.UserLocalId
-        };
-
-        return Ok(dto);
+            var dto = await _assistantService.GetAssistantAsync(userId);
+            return Ok(dto);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     // POST /api/users/{userId}/assistant
@@ -104,66 +152,19 @@ public class AssistantController : ControllerBase
         if (authenticatedUser.Id != userId)
             return Forbid();
 
-        var user = await _db.Users
-            .Include(u => u.Assistant)
-            .FirstOrDefaultAsync(u => u.Id == userId);
-
-        if (user == null)
-            return NotFound("Utilizador não encontrado.");
-
-        if (user.Assistant != null)
-            return Conflict("O utilizador já tem um assistente.");
-
-        // Criação do Assistant na OpenAI
-        var apiKey = _config["OpenAI:ApiKey"];
-
-        var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        httpClient.DefaultRequestHeaders.Add("OpenAI-Beta", "assistants=v2");
-
-
-        var body = new
+        try
         {
-            name = dto.Name,
-            instructions = "És um assistente pessoal chamado ZENO. Sê informal, leal e com memória.",
-            model = "gpt-4o",
-            temperature = 0.7
-        };
-
-        var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync("https://api.openai.com/v1/assistants", content);
-        var responseJson = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            return StatusCode((int)response.StatusCode, responseJson);
-
-        dynamic result = JsonConvert.DeserializeObject(responseJson);
-        string openaiId = result.id;
-
-        // Criação local do Assistant
-        var assistant = new AssistantLocal
+            var output = await _assistantService.CreateAssistantAsync(userId, dto);
+            return CreatedAtAction(nameof(GetAssistant), new { userId }, output);
+        }
+        catch (InvalidOperationException ex)
         {
-            Id = Guid.NewGuid(),
-            Name = dto.Name,
-            Description = dto.Description,
-            CreatedAt = DateTime.UtcNow,
-            UserLocalId = userId,
-            OpenAI_Id = openaiId
-        };
-
-        _db.Assistants.Add(assistant);
-        await _db.SaveChangesAsync();
-
-        var output = new AssistantReadDto
+            return Conflict(ex.Message);
+        }
+        catch (Exception ex)
         {
-            Id = assistant.Id,
-            Name = assistant.Name,
-            Description = assistant.Description,
-            CreatedAt = assistant.CreatedAt,
-            UserId = assistant.UserLocalId
-        };
-
-        return CreatedAtAction(nameof(GetAssistant), new { userId }, output);
+            return BadRequest(ex.Message);
+        }
     }
 
     // PATCH /api/users/{userId}/assistant
@@ -177,39 +178,15 @@ public class AssistantController : ControllerBase
         if (authenticatedUser.Id != userId)
             return Forbid();
 
-        var assistant = await _db.Assistants
-            .FirstOrDefaultAsync(a => a.UserLocalId == userId);
-
-        if (assistant == null)
-            return NotFound();
-
-        if (string.IsNullOrEmpty(assistant.OpenAI_Id))
-            return BadRequest("Assistente não está ligado à OpenAI.");
-
-        // Atualizar na OpenAI
-        var apiKey = _config["OpenAI:ApiKey"];
-        var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
-        var body = new
+        try
         {
-            name = dto.Name ?? assistant.Name,
-            instructions = dto.Description ?? assistant.Description
-        };
-
-        var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
-        var response = await httpClient.PatchAsync($"https://api.openai.com/v1/assistants/{assistant.OpenAI_Id}", content);
-        var responseBody = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-            return StatusCode((int)response.StatusCode, responseBody);
-
-        // Atualizar localmente
-        assistant.Name = dto.Name ?? assistant.Name;
-        assistant.Description = dto.Description ?? assistant.Description;
-        await _db.SaveChangesAsync();
-
-        return NoContent();
+            await _assistantService.UpdateAssistantAsync(userId, dto);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     // GET /api/users/{userId}/assistant/thread
@@ -223,48 +200,15 @@ public class AssistantController : ControllerBase
         if (authenticatedUser.Id != userId)
             return Forbid();
 
-        // Get user
-        var user = await _db.Users.FindAsync(userId);
-        if (user == null)
-            return NotFound("User not found");
-
-        // Use UserSetupService to ensure assistant and thread exist
-        await _userSetupService.SetupNewUserAsync(user);
-
-        // Get the assistant and latest thread
-        var assistant = await _db.Assistants
-            .Include(a => a.Threads)
-            .FirstOrDefaultAsync(a => a.UserLocalId == userId);
-
-        if (assistant == null)
-            return NotFound("Assistant not found");
-
-        var latestThread = assistant.Threads
-            .OrderByDescending(t => t.CreatedAt)
-            .FirstOrDefault();
-
-        if (latestThread == null)
-            return NotFound("Thread not found");
-
-        return Ok(new
+        try
         {
-            assistant = new
-            {
-                id = assistant.Id,
-                name = assistant.Name,
-                description = assistant.Description,
-                createdAt = assistant.CreatedAt,
-                userId = assistant.UserLocalId
-            },
-            thread = new
-            {
-                id = latestThread.Id,
-                title = latestThread.Title,
-                createdAt = latestThread.CreatedAt,
-                assistantId = latestThread.AssistantId,
-                openaiThreadId = latestThread.OpenAI_ThreadId
-            }
-        });
+            var result = await _assistantService.GetOrCreateAssistantAndThreadAsync(userId);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
 }

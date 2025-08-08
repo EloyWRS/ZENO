@@ -213,7 +213,19 @@ namespace ZENO_API_II.Controllers;
 
         try
         {
-            var audioBytes = await _tts.GenerateSpeechAsync(message.Content);
+            // Select TTS voice based on user's language
+            string baseLang = (authenticatedUser.Language ?? "en").Split('-')[0].ToLowerInvariant();
+            string voice = baseLang switch
+            {
+                "pt" => "nova",
+                "en" => "alloy",
+                "es" => "alloy",
+                "fr" => "alloy",
+                "de" => "alloy",
+                _ => "alloy"
+            };
+
+            var audioBytes = await _tts.GenerateSpeechAsync(message.Content, voice);
             return File(audioBytes, "audio/mpeg", $"{id}.mp3");
         }
         catch (Exception ex)
@@ -246,6 +258,7 @@ namespace ZENO_API_II.Controllers;
         if (string.IsNullOrEmpty(assistant.OpenAI_Id))
             return BadRequest("Assistente não está ligado à OpenAI.");
 
+        // Auto-detect language from audio; do not force a language
         string transcribedText = await _audioTranscriptionService.TranscribeAudioAsync(input.AudioFile);
 
         var dto = new MessageCreateDto { Role = "user", Content = transcribedText };

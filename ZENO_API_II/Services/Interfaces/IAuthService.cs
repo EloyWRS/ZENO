@@ -11,5 +11,6 @@ namespace ZENO_API_II.Services.Interfaces
         Task<bool> ValidateTokenAsync(string token);
         Task<bool> RevokeTokenAsync(string token);
         Task<bool> LogoutAsync(string token);
+        Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
     }
 } 

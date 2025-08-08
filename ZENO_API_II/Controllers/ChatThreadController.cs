@@ -23,7 +23,7 @@ namespace ZENO_API_II.Controllers
         }
 
         // GET /api/assistants/{assistantId}/threads
-        [HttpGet("api/assistants/{assistantId}/threads")]
+        [HttpGet("assistants/{assistantId}/threads")]
         public async Task<ActionResult<IEnumerable<ChatThreadReadDto>>> GetThreads(Guid assistantId)
         {
             var threads = await _db.Threads
@@ -41,7 +41,7 @@ namespace ZENO_API_II.Controllers
         }
 
         // GET /api/threads/{id}
-        [HttpGet("api/threads/{id}")]
+        [HttpGet("threads/{id}")]
         public async Task<ActionResult<ChatThreadReadDto>> GetThreadById(Guid id)
         {
             var thread = await _db.Threads.FindAsync(id);
@@ -58,7 +58,7 @@ namespace ZENO_API_II.Controllers
             return Ok(dto);
         }
 
-        [HttpPost("api/assistants/{assistantId}/threads")]
+        [HttpPost("assistants/{assistantId}/threads")]
         public async Task<ActionResult<ChatThreadReadDto>> CreateThread(Guid assistantId, [FromBody] ChatThreadCreateDto dto)
         {
             var assistant = await _db.Assistants.FindAsync(assistantId);
@@ -104,7 +104,7 @@ namespace ZENO_API_II.Controllers
         }
 
         // DELETE /api/threads/{id}
-        [HttpDelete("api/threads/{id}")]
+        [HttpDelete("threads/{id}")]
         public async Task<IActionResult> DeleteThread(Guid id)
         {
             var thread = await _db.Threads.FindAsync(id);

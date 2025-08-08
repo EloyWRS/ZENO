@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Text;
 using ZENO_API_II.Data;
 using ZENO_API_II.DTOs.Message;
@@ -66,6 +67,7 @@ namespace ZENO_API_II.Services.Implementations
             if (!msgResponse.IsSuccessStatusCode)
                 throw new BusinessException(await msgResponse.Content.ReadAsStringAsync(), ErrorCodes.OPENAI_ERROR, (int)msgResponse.StatusCode);
 
+            // Rely on assistant-level instructions; no per-run instruction needed
             var runBody = new { assistant_id = assistant.OpenAI_Id };
             var runContent = new StringContent(JsonConvert.SerializeObject(runBody), Encoding.UTF8, "application/json");
             var runRes = await httpClient.PostAsync($"https://api.openai.com/v1/threads/{openaiThreadId}/runs", runContent);

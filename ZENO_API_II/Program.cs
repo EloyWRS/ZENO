@@ -57,6 +57,7 @@ builder.Services.AddScoped<ITokenEstimatorService, TokenEstimatorService>();
 builder.Services.AddScoped<IOpenAITextToSpeechService, OpenAITextToSpeechService>();
 builder.Services.AddScoped<IAssistantMessageService, AssistantMessageService>();
 builder.Services.AddScoped<IAudioTranscriptionService, AudioTranscriptionService>();
+builder.Services.AddScoped<IAssistantService, AssistantService>();
 
 // User Setup Service
 builder.Services.AddScoped<IUserSetupService, UserSetupService>();

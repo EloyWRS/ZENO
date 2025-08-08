@@ -13,11 +13,13 @@ namespace ZENO_API_II.Controllers
     {
         private readonly ZenoDbContext _db;
         private readonly IJwtService _jwtService;
+        private readonly IAuthService _authService;
 
-        public UserController(ZenoDbContext db, IJwtService jwtService)
+        public UserController(ZenoDbContext db, IJwtService jwtService, IAuthService authService)
         {
             _db = db;
             _jwtService = jwtService;
+            _authService = authService;
         }
 
         [HttpGet("me")]
@@ -125,6 +127,41 @@ namespace ZENO_API_II.Controllers
                 .ToListAsync();
 
             return Ok(users);
+        }
+
+        [HttpPost("change-password")]
+        public async Task<ActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+        {
+            try
+            {
+                var authHeader = Request.Headers["Authorization"].FirstOrDefault();
+                if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+                {
+                    return Unauthorized(new { message = "No valid authorization header" });
+                }
+
+                var token = authHeader.Substring("Bearer ".Length);
+                if (!_jwtService.ValidateToken(token, out var userId) || userId == null)
+                {
+                    return Unauthorized(new { message = "Invalid token" });
+                }
+
+                var changed = await _authService.ChangePasswordAsync(userId.Value, dto.CurrentPassword, dto.NewPassword);
+                if (!changed)
+                {
+                    return BadRequest(new { message = "Current password is incorrect" });
+                }
+
+                return Ok(new { message = "Password updated successfully" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+            catch (Exception)
+            {
+                return StatusCode(500, new { message = "Internal server error" });
+            }
         }
     }
 }
